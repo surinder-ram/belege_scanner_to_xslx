@@ -4,7 +4,7 @@
 
 import os
 
-def rename_files(directory, start_number=300):
+def rename_files(directory, start_number=0):
     files = os.listdir(directory)
     files.sort()  # Sort files to ensure consistent numbering
 
@@ -18,7 +18,7 @@ def rename_files(directory, start_number=300):
         print(f"Renamed '{filename}' to '{new_filename}'")
 
 # Verzeichnis angeben
-directory_path = "C:\\Users\\surin\\Meine Ablage\\Firma\\Belege\\2023\\Versicherung Bank"
+directory_path = "C:\\Users\\surin\\Meine Ablage\\Firma\\Belege\\2023\\Telekom"
 
 # Dateien umbenennen
 rename_files(directory_path)

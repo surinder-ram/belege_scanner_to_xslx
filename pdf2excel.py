@@ -1,5 +1,7 @@
 
 
+#obsolet code, do not use
+
 import os
 import fitz  # PyMuPDF für die PDF-Verarbeitung
 import pandas as pd
@@ -12,8 +14,8 @@ from dateutil import parser
 import openai
 
 # Pfade definieren
-directory_path = r"C:\\Users\\surin\\Meine Ablage\\Firma\\Belege\\2023\\Reise"  # Hier den Pfad zu Ihrem Verzeichnis mit den PDFs angeben
-output_excel_path = r"C:\\temp\\Reise.xlsx"  # Hier den Pfad für die Ausgabe der Excel-Datei angeben
+directory_path = r"C:\\Users\\surin\\Meine Ablage\\Firma\\Belege\\2023\\Telekom"  # Hier den Pfad zu Ihrem Verzeichnis mit den PDFs angeben
+output_excel_path = r"C:\\temp\\Telekom.xlsx"  # Hier den Pfad für die Ausgabe der Excel-Datei angeben
 
 # Funktion zur Extraktion von Text aus PDFs mit PyMuPDF und pytesseract
 def extract_text_with_ocr(pdf_path):
