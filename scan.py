@@ -33,11 +33,12 @@ def extract_info_from_text_with_model(text, model="meta-llama-3.1-8b-instruct"):
 
     # Der prompt für die Extraktion der Informationen
     prompt = f"""
-    Du bist ein Dokumentenanalyst. Bitte extrahier die folgenden Informationen aus dem Text:
-    - Datum
-    - Betrag
-    - MwSt.
-    - Beschreibung
+    Du bist ein Dokumentenanalyst. Bitte extrahier die folgenden Informationen heraus und halte dich am angegebenen Zahlenformat fest.
+    Falls du kommentare hasst bitte als Kommentar extra anführen.
+    - Datum (Format dd.mm.yyyy)
+    - Betrag (xx,xx Bitte nur die Zahl)
+    - MwSt. (xx bitte nur Zahl kein Prozentsatz)
+    - Beschreibung (Bitte maximal 50 Zeichen)
 
     Text:
     {text}
@@ -78,7 +79,11 @@ def generate_filename_from_content(text):
     """
     prompt = f"""
     Generiere einen kurzen Dateinamen basierend auf folgendem Inhalt:
-    Der Name sollte das Datum und eine kurze Beschreibung des Kaufobjektes enthalten. Gib nur den Dateinamen zurück, wie zb. WD-Festplatte_27_10_2019.pdf
+    Der Dateiname sollte folgendes enthalten:
+    - Kaufobjekt (kurz und prägnant, trotzdem sollte verstanden werden was gekauft worden ist)
+    - als letzes bitte datum (dd.mm.yyyy)
+    
+    
 
     Inhalt:
     {text}
