@@ -1,12 +1,14 @@
 
-
+import os
 import ollama
 from PIL import Image
 from pdf2image import convert_from_path
-
+import json
 import io
 import re
 import time
+
+import pathlib
 
 import spacy #python -m spacy download de_core_news_sm  # für Deutsch
 # Lade das deutsche Sprachmodell in spaCy
@@ -39,7 +41,7 @@ def load_file_from_pdf_as_bytestream(pdf_path: str) -> bytes:
     """
     try:
         # Konvertiere die PDF in Bilder (nur die erste Seite)
-        images = convert_from_path(pdf_path, dpi=400)  # 300 dpi für gute Qualität
+        images = convert_from_path(pdf_path, dpi=250)  # 300 dpi für gute Qualität
         if not images:
             raise ValueError("Keine Bilder im PDF gefunden.")
 
@@ -70,20 +72,22 @@ def parse_extracted_data(extracted_text: str) -> dict:
     try:
         # Prompt für das Modell
         prompt = f"""
-        Hier sind die extrahierten Rechnungsdaten:
+        Hier sind extrahierte Rechnungsdaten aus einem Papierrechnunvg:
         {extracted_text}
 
         Verarbeite die Daten und extrahiere die folgenden Informationen:
         1. Betrag (nur der Betrag ohne Währung)
         2. MwSt-Prozentsatz (nur der Prozentsatz ohne das Prozentzeichen)
-        3. Produktbezeichnung (max. 40 Zeichen)
+        3. Produktbezeichnung (max. 50 Zeichen)
         4. Dateiname (aus der Rechnung, möglichst prägnant)
+        5. Datum (dd.mm.yyyy) (es soll das Rechnungsdatum sein)
 
         Gib die Daten im folgenden Format zurück:
         Betrag: <Betrag>
         MwSt: <MwSt-Prozentsatz>
         Produktbezeichnung: <Produktbezeichnung>
         Dateiname: <Dateiname>
+        Datum: <Datum>
         """
 
         # Llama Modell anrufen
@@ -102,20 +106,29 @@ def parse_extracted_data(extracted_text: str) -> dict:
         parsed_data = {}
         lines = response_content.split("\n")
 
-        for line in lines:
-            if line.startswith("Betrag:"):
-                parsed_data["Betrag"] = line.replace("Betrag:", "").strip()
-            elif line.startswith("MwSt:"):
-                parsed_data["MwSt"] = line.replace("MwSt:", "").strip()
-            elif line.startswith("Produktbezeichnung:"):
-                parsed_data["Produktbezeichnung"] = line.replace("Produktbezeichnung:", "").strip()
-            elif line.startswith("Dateiname:"):
-                parsed_data["Dateiname"] = line.replace("Dateiname:", "").strip()
+        # Verwenden von regulären Ausdrücken, um die Daten zu extrahieren
+        betrag_match = re.search(r"Betrag:\s*([\d,]+(?:\s?€)?)", response_content)
+        mwst_match = re.search(r"MwSt:\s*([\d,]+)%?", response_content)
+        produktbezeichnung_match = re.search(r"Produktbezeichnung:\s*(.*?)\n", response_content)
+        dateiname_match = re.search(r"Dateiname:\s*(\S+\.pdf)", response_content)
+        datum_match = re.search(r"\b(\d{2}\.\d{2}\.\d{4})\b", response_content)
+
+        if betrag_match:
+                parsed_data["Betrag"] = betrag_match.group(1).strip()
+        if mwst_match:
+                parsed_data["MwSt"] = mwst_match.group(1).strip()
+        if produktbezeichnung_match:
+                parsed_data["Produktbezeichnung"] = produktbezeichnung_match.group(1).strip()[:50]  # Max 50 Zeichen
+        if dateiname_match:
+                parsed_data["Dateiname"] = dateiname_match.group(1).strip()
+        if datum_match:
+                parsed_data["Datum"] = datum_match.group(1).strip()
 
         return parsed_data
 
     except Exception as e:
         raise ValueError(f"Fehler beim Verarbeiten des Textes: {str(e)}")
+        return  "Error"
 
 
 def get_image_response(uploaded_file):
@@ -131,7 +144,8 @@ def get_image_response(uploaded_file):
                                 "3. **Beschreibung**: Eine kurze, prägnante Beschreibung (maximal 40 Zeichen), "
                                 "die das gekaufte Produkt oder die Dienstleistung beschreibt.\n"
                                 "4. **Dateiname**: Vorschlag für einen geeigneten Dateinamen, der das Produkt oder die Dienstleistung widerspiegelt "
-                                "(z. B. 'monitor_rechnung.pdf').\n\n"
+                                "(z. B. 'monitor_rechnung.pdf').\n"
+                                "5. **Datum**: bitte gib mir das Rechnungsdatum \n\n"
                                 "Bitte gebe die Ergebnisse in einer strukturierten und klaren Liste zurück. "
                                 "Keine weiteren Details oder Informationen hinzufügen."
                             ),
@@ -146,18 +160,62 @@ def get_image_response(uploaded_file):
                 return result
 
 
-if __name__ == "__main__":
-    a=time.time()
-    print("processing")
-    #image = load_file_as_bytestream("C:\\temp\\output_image.png")
-    image = load_file_from_pdf_as_bytestream("C:\\temp\\test_belege\\Rechnung_USBC-VIdeo_kabel.pdf")
-    response_text = get_image_response(image)
-    b=time.time()
-    print("...time consumed", int(b-a))
 
-    print(response_text)
+def process_directory(directory_path):
+
+    # Alle PDF-Dateien im Verzeichnis durchlaufen
+    files = [f for f in os.listdir(directory_path) if f.endswith('.pdf')]
+
+    # Liste zur Speicherung der extrahierten Daten
+    all_data = []
+
+    for file in files:
+        process_single_file(directory_path, file)
+
+    print(f"done, saved in {json_output_path} .")
+
+
+
+
+
+def process_single_file(directory_path, file):
+    pdf_path = os.path.join(directory_path, file)
+
+    # Lade das PDF als Bytestream (du hast die Funktion dafür)
+    image = load_file_from_pdf_as_bytestream(pdf_path)
+
+    # Hole die Antwort vom Modell
+    a = time.time()
+    print(f"processing file: {pdf_path}")
+
+    response_text = get_image_response(image)
+    #print(response_text)
+
+    b = time.time()
+    print(f"...time consumed: {int(b - a)} sec")
+
+    # Parse die extrahierten Daten
     parsed_data = parse_extracted_data(response_text)
-    print(parsed_data)
+    print("parsed_data", parsed_data)
+
+    # Speichere die Daten in der Liste
+    # all_data.append(parsed_data)
+
+    # Speichern der extrahierten Daten als JSON
+
+    json_output_path = "C:\\temp\\" + file + ".json"
+    with open(json_output_path, 'w', encoding='utf-8') as json_file:
+        json.dump(parsed_data, json_file, ensure_ascii=False, indent=4)
+
+
+if __name__ == "__main__":
+
+    #directory
+    process_directory(directory_path = "C:\\temp\\test_belege")
+
+    #single file
+    #process_single_file(directory_path = "C:\\temp\\test_belege", file="BohseKopfhörer_11_10_2024.pdf")
+
 
 
 
