@@ -1,89 +1,32 @@
-import fitz  # PyMuPDF
-import re
-import requests
+
 import base64
+import requests
+from image_coding import pdf_to_base64, save_base64_as_png
 
-
-# Funktion zum Extrahieren von Text aus einer PDF-Datei
-def extract_text_from_pdf(pdf_path: str) -> str:
+def call_model_with_images(base64_images):
     """
-    Extrahiert den gesamten Text aus einer PDF-Datei.
+    Ruft das Modell auf und übergibt ihm die Base64-kodierten Bilder.
 
-    :param pdf_path: Pfad zur PDF-Datei.
-    :return: Gesamter extrahierter Text der PDF.
+    :param base64_images: Liste der Base64-kodierten Bilder
+    :return: Modellantwort
     """
-    try:
-        pdf_document = fitz.open(pdf_path)
-        full_text = ""
-        for page_num in range(pdf_document.page_count):
-            page = pdf_document.load_page(page_num)
-            full_text += page.get_text()  # Extrahiere den Text von jeder Seite
-        return full_text
-    except Exception as e:
-        raise RuntimeError(f"Fehler bei der Textextraktion: {str(e)}")
+    url = "http://127.0.0.1:1233/v1/chat/completions"
 
-
-# Extrahiert das Datum (Format: dd.mm.yyyy)
-def extract_date(text: str) -> str:
-    match = re.search(r'\b\d{2}\.\d{2}\.\d{4}\b', text)
-    return match.group() if match else ""
-
-
-# Extrahiert den Betrag (Format: xx,xx)
-def extract_amount(text: str) -> float:
-    match = re.search(r'\b\d+,\d{2}\b', text)
-    return float(match.group().replace(',', '.')) if match else 0.0
-
-
-# Extrahiert den MwSt.-Betrag (xx ohne Prozentsatz)
-def extract_vat(text: str) -> float:
-    match = re.search(r'\b\d+,\d{2}(?=\s*(%|MwSt|Steuer))\b', text)
-    return float(match.group().replace(',', '.')) if match else 0.0
-
-
-# Extrahiert die Beschreibung (maximal 50 Zeichen)
-def extract_description(text: str) -> str:
-    match = re.search(r'([A-Za-z0-9\s,;:.-]{1,50})', text)
-    return match.group(0) if match else ""
-
-
-# Funktion zur Nachrichtenerstellung und Modellaufruf
-def generate_and_call_model(pdf_path: str, model_url: str):
-    """
-    Extrahiert Informationen aus einer PDF, erstellt eine Nachricht und ruft das Modell auf.
-
-    :param pdf_path: Der Pfad zur PDF-Datei.
-    :param model_url: Die URL des Modells.
-    :return: Die Antwort des Modells.
-    """
-    # Extrahiere Text aus der PDF
-    text = extract_text_from_pdf(pdf_path)
-
-    # Extrahiere die relevanten Daten
-    details = {
-        'Datum': extract_date(text),
-        'Betrag': extract_amount(text),
-        'MwSt.': extract_vat(text),
-        'Beschreibung': extract_description(text)
-    }
-
-    # Generiere die Nachricht
-    message = f"""
-    Hier sind die extrahierten Informationen aus der PDF:
-    - Datum: {details['Datum']}
-    - Betrag: {details['Betrag']} EUR
-    - MwSt.: {details['MwSt.']} EUR
-    - Beschreibung: {details['Beschreibung']}
-    """
-
-    # Erstelle die Datenstruktur für den Modellaufruf
-    payload = {
-        "model": "llama-3.1-unhinged-vision-8b",  # Beispielmodell
+    # Generiere die Anfrage
+    data = {
+        "model": "llama-3.1-unhinged-vision-8b",  # Dein Modell
         "messages": [
             {
                 "role": "user",
                 "content": [
-                    {"type": "text", "text": message},
+                    {
+                        "type": "text",
+                        "text": "Dies ist eine Rechnung im png format (aus einem pdf erstellt). Extrahiere bitte folgende Informationen: Datum, MwSt. (nur Zahl), Kaufobjekt."
+                    },
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/png;base64,{base64_images[0]}"}  # Hier verwenden wir das erste Bild
+                    }
                 ]
             }
         ],
@@ -92,19 +35,66 @@ def generate_and_call_model(pdf_path: str, model_url: str):
         "stream": False
     }
 
-    # Sende die Anfrage an das Modell
-    response = requests.post(model_url, json=payload)
+    output_path = "c:\\temp\\output_image.png"
+    save_base64_as_png(base64_images[0], output_path)
 
-    if response.status_code == 200:
-        return response.json()
-    else:
-        raise RuntimeError(f"Fehler beim Modellaufruf: {response.status_code} - {response.text}")
+    # Sende die Anfrage
+    response = requests.post(url, json=data)
 
+    # Gib die Antwort zurück
+    return response.json()
 
-# Beispiel der Verwendung
-pdf_path = r"c://temp//test_belege//halter_monitor.pdf"
-model_url = "http://127.0.0.1:1233/v1/chat/completions"
-response = generate_and_call_model(pdf_path, model_url)
+def extract_information_from_response(response):
+    """
+    Extrahiert relevante Daten (Datum, MwSt., und Kaufobjekt) aus der Modellantwort.
 
-# Ausgabe der Modellantwort
-print(response)
+    :param response: Modellantwort
+    :return: Extrahierte Daten
+    """
+    try:
+        response_text = response["choices"][0]["message"]["content"]
+
+        # Hier können einfache Such- oder Reguläre Ausdrücke verwendet werden
+        extracted_data = {
+            "Datum": None,
+            "MwSt. Betrag": None,
+            "MwSt. Prozent": None,
+            "Kaufobjekt": None
+        }
+
+        # Beispiel für einfache Textextraktion
+        if "Datum" in response_text:
+            extracted_data["Datum"] = response_text.split("Datum:")[1].split("\n")[0].strip()
+        if "MwSt." in response_text:
+            extracted_data["MwSt. Betrag"] = response_text.split("MwSt. Betrag:")[1].split("\n")[0].strip()
+            extracted_data["MwSt. Prozent"] = response_text.split("MwSt. Prozent:")[1].split("\n")[0].strip()
+        if "Kaufobjekt" in response_text:
+            extracted_data["Kaufobjekt"] = response_text.split("Kaufobjekt:")[1].split("\n")[0].strip()
+
+        return extracted_data
+
+    except Exception as e:
+        print(f"Fehler bei der Extraktion der Daten: {str(e)}")
+        return None
+
+def main(pdf_path):
+    """
+    Der Hauptprozess, der PDF in Bilder umwandelt, das Modell abruft und Daten extrahiert.
+
+    :param pdf_path: Pfad zur PDF-Datei
+    """
+    # Schritt 1: PDF in Base64-Bilder umwandeln
+    base64_images = pdf_to_base64(pdf_path)
+
+    # Schritt 2: Anfrage an das Modell senden
+    response = call_model_with_images(base64_images)
+
+    # Schritt 3: Extrahiere die relevanten Informationen aus der Modellantwort
+    extracted_data = extract_information_from_response(response)
+
+    # Ausgabe der extrahierten Informationen
+    print(extracted_data)
+
+# Beispielaufruf
+pdf_path = "c:\\temp\\test_belege\\halter_monitor.pdf"  # Pfad zur PDF-Datei
+main(pdf_path)
