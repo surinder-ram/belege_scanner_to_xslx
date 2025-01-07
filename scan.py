@@ -3,6 +3,49 @@ import json
 import requests
 import fitz  # PyMuPDF
 
+import torch
+print(torch.cuda.is_available())  # Sollte True ausgeben, wenn CUDA verfügbar ist
+print(torch.__version__)  # Zeigt die PyTorch-Version an
+# Überprüfe, wie viele GPUs erkannt werden
+print(torch.cuda.device_count())  # Gibt die Anzahl der GPUs zurück
+# Zeigt den Namen der verwendeten GPU
+if torch.cuda.is_available():
+    print(torch.cuda.get_device_name(0))  # Zeigt den Namen der ersten GPU an
+
+
+
+from datetime import date
+
+from pydantic import BaseModel
+from lmformatenforcer import JsonSchemaParser
+from lmformatenforcer.integrations.transformers import build_transformers_prefix_allowed_tokens_fn
+from transformers import pipeline
+
+class AnswerFormat(BaseModel):
+    date: date
+    amount: int
+    vat: int
+    description: str
+    filename: str
+
+
+# Create a transformers pipeline
+#hf_pipeline = pipeline('text-generation', model='TheBloke/Llama-2-7b-Chat-GPTQ', device_map=0)
+# Prompt erstellen
+#prompt = f'Here is information about Michael Jordan in the following json schema: {AnswerFormat.schema_json()} :\n'parser = JsonSchemaParser(AnswerFormat.model_json_schema())
+# Create a character level parser and build a transformers prefix function from it
+#parser = JsonSchemaParser(AnswerFormat.schema())
+#prefix_function = build_transformers_prefix_allowed_tokens_fn(hf_pipeline.tokenizer, parser)
+
+def enforce_llm():
+    # Call the pipeline with the prefix function
+    output_dict = hf_pipeline(prompt, prefix_allowed_tokens_fn=prefix_function)
+
+    # Extract the results
+    result = output_dict[0]['generated_text'][len(prompt):]
+    print(result)
+    # {'first_name': 'Michael', 'last_name': 'Jordan', 'year_of_birth': 1963, 'num_seasons_in_nba': 15}
+
 
 def extract_text_from_pdf(pdf_path):
     """
