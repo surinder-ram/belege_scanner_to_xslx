@@ -41,7 +41,7 @@ def load_file_from_pdf_as_bytestream(pdf_path: str) -> bytes:
     """
     try:
         # Konvertiere die PDF in Bilder (nur die erste Seite)
-        images = convert_from_path(pdf_path, dpi=250)  # 300 dpi für gute Qualität
+        images = convert_from_path(pdf_path, dpi=350)  # 300 dpi für gute Qualität
         if not images:
             raise ValueError("Keine Bilder im PDF gefunden.")
 
@@ -124,6 +124,9 @@ def parse_extracted_data(extracted_text: str) -> dict:
         if datum_match:
                 parsed_data["Datum"] = datum_match.group(1).strip()
 
+        parsed_data["extracted_text-1"]=extracted_text
+        parsed_data["response_content-2"]=response_content
+
         return parsed_data
 
     except Exception as e:
@@ -139,12 +142,12 @@ def get_image_response(uploaded_file):
                             'role': 'user',
                             'content': (
                                 "Bitte analysiere die hochgeladene Rechnung und extrahiere folgende Informationen:\n\n"
-                                "1. **MwSt-Prozentsatz**: Der Prozentsatz der Mehrwertsteuer (z. B. 19 oder 7).\n"
+                                "1. **MwSt-Prozentsatz**: Der Prozentsatz der Mehrwertsteuer (z. B. 19 oder 7) (manchmal kann es auch als UST genannt werden).\n"
                                 "2. **Betrag**: Der Gesamtbetrag in Euro (z. B. 123,45).\n"
-                                "3. **Beschreibung**: Eine kurze, prägnante Beschreibung (maximal 40 Zeichen), "
+                                "3. **Beschreibung**: Eine kurze, prägnante Beschreibung (maximal 60 Zeichen) des Kaufs, möglichst auf übergeordnete Gattung nennen, und das ebenfalls danach das detail "
                                 "die das gekaufte Produkt oder die Dienstleistung beschreibt.\n"
-                                "4. **Dateiname**: Vorschlag für einen geeigneten Dateinamen, der das Produkt oder die Dienstleistung widerspiegelt "
-                                "(z. B. 'monitor_rechnung.pdf').\n"
+                                "4. **Dateiname**: Vorschlag für einen geeigneten Dateinamen, der das Produkt oder die Dienstleistung widerspiegelt (gerne auch die Gattung zb. Grafikarte), bitte nicht das Wort Rechnung verwenden "
+                                "(positiv beispiel: 'monitor_rechnung_31_5_2024.pdf').\n"
                                 "5. **Datum**: bitte gib mir das Rechnungsdatum \n\n"
                                 "Bitte gebe die Ergebnisse in einer strukturierten und klaren Liste zurück. "
                                 "Keine weiteren Details oder Informationen hinzufügen."
@@ -172,7 +175,7 @@ def process_directory(directory_path):
     for file in files:
         process_single_file(directory_path, file)
 
-    print(f"done, saved in {json_output_path} .")
+    #print(f"done, saved in {json_output_path} .")
 
 
 
