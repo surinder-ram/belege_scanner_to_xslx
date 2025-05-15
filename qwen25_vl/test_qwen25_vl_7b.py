@@ -1,3 +1,6 @@
+#schrott geht nicht
+
+
 import fitz  # PyMuPDF
 from PIL import Image
 from io import BytesIO
@@ -40,3 +43,4 @@ if __name__ == "__main__":
     except subprocess.CalledProcessError as e:
         print("Fehler beim Modellaufruf:")
         print(e.stderr)
+
