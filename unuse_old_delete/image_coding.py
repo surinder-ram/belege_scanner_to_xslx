@@ -17,9 +17,9 @@ def pdf_to_base64(pdf_path: str) -> list:
         base64_images = []
         for image in images:
             # Bild in Base64 umwandeln
-            with open("temp_image.png", "wb") as temp_file:
+            with open("../temp_image.png", "wb") as temp_file:
                 image.save(temp_file, format="PNG")
-            with open("temp_image.png", "rb") as temp_file:
+            with open("../temp_image.png", "rb") as temp_file:
                 base64_image = base64.b64encode(temp_file.read()).decode("utf-8")
                 base64_images.append(base64_image)
 
