@@ -13,7 +13,7 @@ MODEL_NAME = "lmstudio-community/qwen2.5-vl-7b-instruct"
 def pdf_page_to_base64(pdf_path, page_number=0):
     doc = fitz.open(pdf_path)
     page = doc.load_page(page_number)
-    pix = page.get_pixmap(dpi=200)
+    pix = page.get_pixmap(dpi=300)
     img_bytes = pix.tobytes("png")
     base64_img = base64.b64encode(img_bytes).decode()
     return base64_img
