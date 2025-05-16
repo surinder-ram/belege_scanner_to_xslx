@@ -31,7 +31,7 @@ def extract_with_llm(ocr_text):
         "Beispiel: '19,00' oder '7,00' für MwSt-Satz, '1234,56' für Beträge.\n"
         "Felder:\n"
         "- Rechnungsnummer\n"
-        "- Datum\n"
+        "- Datum (Verwende für das Datum das Format TT.MM.JJJJ (z.B. 05.12.2024) )\n"
         "- Bezeichnung\n"
         "- MwSt-Satz (in Prozent, nur Zahl, KEIN %, KEIN Punkt, sondern Komma!)\n"
         "- MwSt-Betrag (nur Zahl, KEIN €)\n"
@@ -41,7 +41,7 @@ def extract_with_llm(ocr_text):
         "Falls ein Wert nicht gefunden werden kann, schreibe \"NICHT GEFUNDEN\".\n"
         "Antworte ausschließlich mit folgendem JSON-Format (ohne weitere Erklärungen, Kommentare oder Text):\n"
         "{\n"
-        "  \"Rechnungsnummer\": \"123456\",\n"
+        "  \"Rechnungsnummer\": \"abc123456\",\n"
         "  \"Datum\": \"01.01.2024\",\n"
         "  \"Bezeichnung\": \"Artikelname\",\n"
         "  \"MwSt-Satz\": \"19,00\",\n"
@@ -151,5 +151,5 @@ def process_all_pdfs(ordner, out_csv="extraktion_llm_ergebnisse.csv"):
     print(f"Ergebnisse gespeichert in {out_csv}")
 
 if __name__ == "__main__":
-    ORDNER = r"C:\temp\test_belege\2"  # Passe den Ordnerpfad an
+    ORDNER = r"C:\temp\test_belege\1"  # Passe den Ordnerpfad an
     process_all_pdfs(ORDNER)
