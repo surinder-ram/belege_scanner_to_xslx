@@ -13,9 +13,10 @@ pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tessera
 POPPLER_PATH = r"C:\Program Files\poppler-24.08.0\Library\bin"  # Passe ggf. an
 
 API_URL = "http://10.0.0.20:1233/v1/chat/completions"
-MODEL_NAME = "lmstudio-community/qwen2.5-vl-7b-instruct"
+#MODEL_NAME = "lmstudio-community/qwen2.5-vl-7b-instruct"
+MODEL_NAME = "lmstudio-community/qwen3-14b"
 
-def ask_pdf_ocr(pdf_path, page_number=0, dpi=300, lang="deu"):
+def ask_pdf_ocr(pdf_path, page_number=0, dpi=400, lang="deu"):
     pages = convert_from_path(pdf_path, dpi=dpi, poppler_path=POPPLER_PATH)
     if page_number >= len(pages):
         raise ValueError(f"PDF hat nur {len(pages)} Seiten, aber Seite {page_number} wurde angefragt.")
@@ -28,7 +29,8 @@ def extract_with_llm(ocr_text):
         "Extrahiere aus folgendem OCR-Text die folgenden Felder und gib die Antwort ausschließlich als JSON-Objekt zurück. "
         "WICHTIG: Verwende für Dezimalzahlen das deutsche Komma (z.B. 19,00), nicht den Punkt. "
         "Gib bei allen Beträgen und Sätzen ausschließlich die Zahl zurück, OHNE Euro-Zeichen, Prozent-Zeichen oder andere Einheiten. "
-        "Beispiel: '19,00' oder '7,00' für MwSt-Satz, '1234,56' für Beträge.\n"
+        "Beispiel: '20,00' oder '7,00' für MwSt-Satz, '1234,56' für Beträge.\n"
+        "Falls es beispielsweise eine Restaurant-Rechnung ist, nimm als Bezeichnung z.B den Restaurant-Namen .\n"
         "Felder:\n"
         "- Rechnungsnummer\n"
         "- Datum (Verwende für das Datum das Format TT.MM.JJJJ (z.B. 05.12.2024) )\n"
@@ -41,10 +43,10 @@ def extract_with_llm(ocr_text):
         "Falls ein Wert nicht gefunden werden kann, schreibe \"NICHT GEFUNDEN\".\n"
         "Antworte ausschließlich mit folgendem JSON-Format (ohne weitere Erklärungen, Kommentare oder Text):\n"
         "{\n"
-        "  \"Rechnungsnummer\": \"abc123456\",\n"
+        "  \"Rechnungsnummer\": \"123456\",\n"
         "  \"Datum\": \"01.01.2024\",\n"
         "  \"Bezeichnung\": \"Artikelname\",\n"
-        "  \"MwSt-Satz\": \"19,00\",\n"
+        "  \"MwSt-Satz\": \"20,00\",\n"
         "  \"MwSt-Betrag\": \"23,45\",\n"
         "  \"Gesamtbetrag\": \"123,45\",\n"
         "  \"Nettobetrag\": \"100,00\",\n"
@@ -53,9 +55,6 @@ def extract_with_llm(ocr_text):
         "Achtung: Schreibe niemals einen Punkt als Dezimaltrennzeichen, sondern IMMER ein Komma!\n"
         "OCR-Text:\n"
     ) + ocr_text
-    # ... Rest wie gehabt ...
-
-
 
     messages = [{"role": "user", "content": prompt}]
     payload = {
@@ -150,6 +149,28 @@ def process_all_pdfs(ordner, out_csv="extraktion_llm_ergebnisse.csv"):
         writer.writerows(ergebnisse)
     print(f"Ergebnisse gespeichert in {out_csv}")
 
+
+def batch():
+    main_dir = r"C:\Users\surin\Meine Ablage (surinder.ram@gmail.com)\Firma\Belege\2024"
+
+    # Durchsuche alle Unterordner im Hauptverzeichnis
+    for ordner_name in os.listdir(main_dir):
+        ordner_pfad = os.path.join(main_dir, ordner_name)
+
+        # Verarbeite nur Ordner (keine Dateien)
+        if os.path.isdir(ordner_pfad):
+            csv_name = f"{ordner_name}.csv"  # CSV-Name = Ordnername + .csv
+            print(f"\nVerarbeite Ordner: {ordner_name}")
+            process_all_pdfs(ordner_pfad, out_csv=csv_name)
+
+
 if __name__ == "__main__":
-    ORDNER = r"C:\temp\test_belege\1"  # Passe den Ordnerpfad an
-    process_all_pdfs(ORDNER)
+    #batch()
+
+    #file=r"C:\Users\surin\Meine Ablage (surinder.ram@gmail.com)\Firma\Belege\2024\Bewirtung\200_Beleg RestaurantGlückspfad_München_18_12_2024.pdf"
+    file = r"C:\Users\surin\Meine Ablage (surinder.ram@gmail.com)\Firma\Belege\2024\Bewirtung\208_Hofer_Bewirtung_12_10_2024.pdf"
+    text=ask_pdf_ocr(file, page_number=0, dpi=300, lang="deu")
+    print(text)
+    erg=extract_with_llm(text)
+    print(erg)
+
