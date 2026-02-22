@@ -107,7 +107,7 @@ def extract_data_from_pdf_image_directly(pdf_path, page_number=0, dpi=300):
         "Zu extrahierende Felder:\n"
         "- Rechnungsnummer\n"
         "- Datum (Verwende für das Datum das Format TT.MM.JJJJ, z.B. 05.12.2024)\n"
-        "- Bezeichnung (Falls es eine Restaurant-Rechnung ist, nimm den Restaurant-Namen. Für Supermärkte 'Einkauf' oder den Supermarkt-Namen, falls klar ersichtlich.)\n"
+        "- Bezeichnung (Falls es eine Restaurant-Rechnung ist, nimm den Restaurant-Namen. Für Supermärkte 'Einkauf' oder den Supermarkt-Namen, falls klar ersichtlich. Sonst bitte den Gegenstand)\n"
         "- MwSt-Satz (in Prozent, nur Zahl, KEIN %, KEIN Punkt, sondern Komma! z.B. '19,00'. Wenn mehrere Sätze vorhanden sind, nimm den dominanten oder wichtigsten.)\n"
         "- MwSt-Betrag (nur Zahl, KEIN €. Wenn mehrere MwSt-Beträge vorhanden sind, summiere sie oder nimm den zur Haupt-MwSt gehörenden Betrag.)\n"
         "- Gesamtbetrag (nur Zahl, KEIN €, inkl. MwSt)\n"
