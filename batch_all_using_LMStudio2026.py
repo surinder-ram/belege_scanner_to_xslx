@@ -1,126 +1,150 @@
-
-from paddleocr import PaddleOCR
 import os
-os.environ["PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK"] = "True"
-
-import os
-import json
-import io
 import re
+import json
 import requests
 import numpy as np
-
-
-
+from datetime import datetime
 from pdf2image import convert_from_path
 from paddleocr import PaddleOCR
 from openpyxl import Workbook
 from openpyxl.styles import Font, NamedStyle, Alignment
-from datetime import datetime
 
-# ---------------- LM STUDIO SETTINGS ----------------
+# ===================== CONFIG =====================
 
+DEBUG = True
 API_URL = "http://10.0.0.20:1233/v1/chat/completions"
 MODEL_NAME = "google/gemma-3-27b"
-
-# ---------------- SYSTEM PATHS ----------------
-
 POPPLER_PATH = r"C:\Program Files\poppler-25.12.0\Library\bin"
 
-# ---------------- PADDLE OCR INIT ----------------
+os.environ["PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK"] = "True"
 
+# ===================== LM STUDIO CHECK =====================
+
+def check_lmstudio():
+    print("\n🔎 Prüfe LM Studio Verbindung...")
+    try:
+        r = requests.get("http://10.0.0.20:1233/v1/models", timeout=10)
+        r.raise_for_status()
+        models = r.json().get("data", [])
+
+        if not models:
+            print("❌ Kein Modell geladen!")
+            return False
+
+        print("✅ Verbindung ok.")
+        for m in models:
+            print("   -", m["id"])
+
+        return any(MODEL_NAME in m["id"] for m in models)
+
+    except Exception as e:
+        print("❌ Verbindung fehlgeschlagen:", e)
+        return False
+
+# ===================== OCR INIT =====================
 
 OCR_ENGINE = PaddleOCR(
     use_textline_orientation=True,
     device="cpu"
 )
-# ---------------- EXCEL STYLES ----------------
 
-def create_excel_styles(workbook):
-    header_font = Font(bold=True)
+# ===================== HELPER =====================
 
-    amount_style = NamedStyle(name="amount_style", number_format="#,##0.00")
-    date_style = NamedStyle(name="date_style", number_format="DD.MM.YYYY")
+def debug(msg):
+    if DEBUG:
+        print(msg)
 
-    if "amount_style" not in workbook.style_names:
-        workbook.add_named_style(amount_style)
-    if "date_style" not in workbook.style_names:
-        workbook.add_named_style(date_style)
-
-    return header_font, "amount_style", "date_style"
-
-
-# ---------------- PARSER HELPERS ----------------
-
-def parse_german_float(s_val):
-    if isinstance(s_val, (int, float)):
-        return float(s_val)
-
-    if isinstance(s_val, str):
-        s_val = s_val.replace(".", "").replace(",", ".")
+def parse_german_float(val):
+    if isinstance(val, str):
+        val = val.replace(".", "").replace(",", ".")
         try:
-            return float(s_val)
+            return float(val)
         except:
             return None
-    return None
+    return val if isinstance(val, float) else None
 
+def parse_german_date(val):
+    try:
+        return datetime.strptime(val, "%d.%m.%Y")
+    except:
+        return None
 
-def parse_german_date(s_date):
-    if isinstance(s_date, str):
-        try:
-            return datetime.strptime(s_date, "%d.%m.%Y")
-        except:
-            return None
-    return None
+# ===================== OCR =====================
 
+def extract_text_with_paddle(pdf_path):
 
-# ---------------- OCR STEP ----------------
-
-def extract_text_with_paddle(pdf_path, dpi=300):
-    print(f"    OCR lese: {os.path.basename(pdf_path)}")
+    print("\n=============================")
+    print("📄 OCR START:", os.path.basename(pdf_path))
+    print("=============================")
 
     pages = convert_from_path(
         pdf_path,
-        dpi=dpi,
-        poppler_path=POPPLER_PATH,
-        first_page=1,
-        last_page=1
+        dpi=300,
+        poppler_path=POPPLER_PATH
     )
 
     if not pages:
-        raise ValueError("Keine Seite erkannt")
+        print("❌ Keine Seiten extrahiert")
+        return ""
 
-    img_np = np.array(pages[0])
+    full_text = ""
 
-    result = OCR_ENGINE.ocr(img_np, cls=True)
+    for page_index, page in enumerate(pages):
 
-    lines = []
-    for block in result:
-        for line in block:
-            lines.append(line[1][0])
+        print(f"\n--- Seite {page_index+1} ---")
 
-    text = "\n".join(lines)
+        img = np.array(page)
+        result = OCR_ENGINE.predict(img)
 
-    print(f"    → {len(lines)} Textzeilen erkannt")
-    return text
+        if not result:
+            print("⚠️ OCR Ergebnis leer")
+            continue
 
+        print("Result Type:", type(result))
+        print("Length:", len(result))
 
-# ---------------- LLM STRUCTURING ----------------
+        page_dict = result[0]
+
+        print("Keys im Result:", page_dict.keys())
+
+        texts = page_dict.get("rec_texts", [])
+        scores = page_dict.get("rec_scores", [])
+
+        print("Gefundene Texte:", len(texts))
+
+        for txt, score in zip(texts, scores):
+
+            print(f"{score:.3f} | {txt}")
+
+            if score > 0.85:
+                full_text += txt.strip() + "\n"
+
+    print("\n=============================")
+    print("📄 OCR ENDE")
+    print("=============================")
+
+    print("\n--- FINAL TEXT ---")
+    print(full_text)
+    print("------------------\n")
+
+    return full_text
+
+# ===================== LLM =====================
 
 def send_text_to_llm(ocr_text):
+
     system_prompt = (
-        "Du bist ein präziser Buchhaltungs-Parser. "
-        "Du darfst KEINE Informationen erfinden. "
-        "Wenn ein Feld fehlt → NICHT GEFUNDEN."
+        "Du bist ein extrem präziser deutscher Buchhaltungs-Parser. "
+        "Du darfst KEINE Werte erfinden."
     )
 
     user_prompt = f"""
-Extrahiere strukturierte Rechnungsdaten aus diesem OCR-Text.
+Extrahiere folgende Rechnungsdaten:
 
-TEXT:
+OCR TEXT:
 {ocr_text}
 
-Gib ausschließlich JSON zurück:
+Antworte ausschließlich mit gültigem JSON:
 
 {{
 "Rechnungsnummer":"",
@@ -136,7 +160,7 @@ Gib ausschließlich JSON zurück:
 Regeln:
 - Zahlen mit Komma
 - Datum TT.MM.JJJJ
-- Keine Halluzination
+- Wenn nicht vorhanden → NICHT GEFUNDEN
 """
 
     payload = {
@@ -145,57 +169,77 @@ Regeln:
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}
         ],
-        "temperature": 0.0,
-        "max_tokens": 1200
+        "temperature": 0.0
     }
+
+    debug("📤 Sende an LLM...")
 
     response = requests.post(API_URL, json=payload, timeout=300)
     response.raise_for_status()
 
-    return response.json()["choices"][0]["message"]["content"]
+    content = response.json()["choices"][0]["message"]["content"]
 
+    debug("\n📥 LLM RAW:")
+    debug(content)
 
-# ---------------- JSON CLEANUP ----------------
+    return content
+
+# ===================== JSON EXTRACTION =====================
 
 def extract_json(text):
-    match = re.search(r"\{[\s\S]*\}", text)
-    if not match:
-        return {}
     try:
-        return json.loads(match.group(0))
+        return json.loads(text)
     except:
-        return {}
+        match = re.search(r"\{.*\}", text, re.DOTALL)
+        if match:
+            try:
+                return json.loads(match.group(0))
+            except:
+                return {}
+    return {}
 
+# ===================== VALIDATION =====================
 
-# ---------------- MAIN PROCESS ----------------
+def validate_amounts(data):
+
+    netto = parse_german_float(data.get("Nettobetrag"))
+    mwst = parse_german_float(data.get("MwSt-Betrag"))
+    brutto = parse_german_float(data.get("Gesamtbetrag"))
+
+    if netto and mwst and brutto:
+        if abs((netto + mwst) - brutto) > 0.02:
+            print("⚠️ Beträge inkonsistent!")
+
+# ===================== PROCESS PDF =====================
 
 def process_pdf(pdf_path):
+
     ocr_text = extract_text_with_paddle(pdf_path)
     llm_answer = send_text_to_llm(ocr_text)
     data = extract_json(llm_answer)
 
+    debug("📦 JSON:", data)
+
+    validate_amounts(data)
+
     return data, llm_answer
 
-
-# ---------------- EXCEL EXPORT ----------------
+# ===================== EXCEL =====================
 
 def process_folder_to_excel(folder, output_excel):
-    workbook = Workbook()
-    sheet = workbook.active
-    sheet.title = "Rechnungsdaten"
 
-    header_font, amount_style, date_style = create_excel_styles(workbook)
+    wb = Workbook()
+    sheet = wb.active
+    sheet.title = "Rechnungen"
 
     headers = [
         "Datei","Rechnungsnummer","Datum","Bezeichnung",
         "MwSt-Satz","MwSt-Betrag","Gesamtbetrag",
-        "Nettobetrag","Lieferant","Rohe_LLM_Antwort"
+        "Nettobetrag","Lieferant","Raw_LLM"
     ]
 
-    for col, h in enumerate(headers,1):
-        cell = sheet.cell(row=1,column=col,value=h)
-        cell.font = header_font
-        cell.alignment = Alignment(horizontal="center")
+    for col,h in enumerate(headers,1):
+        sheet.cell(row=1,column=col,value=h).font = Font(bold=True)
 
     row = 2
 
@@ -225,22 +269,21 @@ def process_folder_to_excel(folder, output_excel):
             values = [file] + ["FEHLER"]*8 + [str(e)]
 
         for col,val in enumerate(values,1):
-            cell = sheet.cell(row=row,column=col,value=val)
-
-            if headers[col-1]=="Datum" and isinstance(val,datetime):
-                cell.style=date_style
-            elif headers[col-1] in ["MwSt-Betrag","Gesamtbetrag","Nettobetrag"] and isinstance(val,float):
-                cell.style=amount_style
+            sheet.cell(row=row,column=col,value=val)
 
         row+=1
 
-    workbook.save(output_excel)
+    wb.save(output_excel)
     print(f"\n✔ Excel gespeichert: {output_excel}")
 
-
-# ---------------- RUN ----------------
+# ===================== RUN =====================
 
 if __name__ == "__main__":
+
+    if not check_lmstudio():
+        print("❌ Gemma nicht erreichbar. Abbruch.")
+        exit()
+
     input_folder = r"C:\Users\surin\Meine Ablage (surinder.ram@gmail.com)\Firma\Belege\2025\Hardware"
     output_excel = r"C:\Users\surin\Meine Ablage (surinder.ram@gmail.com)\Firma\Belege\2025\Hardware\Ergebnis.xlsx"
 
