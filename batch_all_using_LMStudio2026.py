@@ -13,7 +13,7 @@ from openpyxl.styles import Font, NamedStyle, Alignment
 
 DEBUG = True
 API_URL = "http://10.0.0.20:1233/v1/chat/completions"
-MODEL_NAME = "google/gemma-3-27b"
+MODEL_NAME = "google/gemma-3-12b"
 POPPLER_PATH = r"C:\Program Files\poppler-25.12.0\Library\bin"
 
 os.environ["PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK"] = "True"
@@ -198,8 +198,10 @@ def extract_json(text):
                 return {}
     return {}
 
-# ===================== VALIDATION =====================
 
+
+
+# ===================== VALIDATION =====================
 def validate_amounts(data):
 
     netto = parse_german_float(data.get("Nettobetrag"))
@@ -210,6 +212,8 @@ def validate_amounts(data):
         if abs((netto + mwst) - brutto) > 0.02:
             print("⚠️ Beträge inkonsistent!")
 
+
+
 # ===================== PROCESS PDF =====================
 
 def process_pdf(pdf_path):
@@ -218,7 +222,8 @@ def process_pdf(pdf_path):
     llm_answer = send_text_to_llm(ocr_text)
     data = extract_json(llm_answer)
 
-    debug("📦 JSON:", data)
+    def debug(*args):
+        print("[DEBUG]", *args)
 
     validate_amounts(data)
 
@@ -233,7 +238,7 @@ def process_folder_to_excel(folder, output_excel):
     sheet.title = "Rechnungen"
 
     headers = [
-        "Datei","Rechnungsnummer","Datum","Bezeichnung",
+        "Datei","Datum","Bezeichnung",
         "MwSt-Satz","MwSt-Betrag","Gesamtbetrag",
         "Nettobetrag","Lieferant","Raw_LLM"
     ]
@@ -254,7 +259,7 @@ def process_folder_to_excel(folder, output_excel):
 
             values = [
                 file,
-                data.get("Rechnungsnummer"),
+                #data.get("Rechnungsnummer"),
                 parse_german_date(data.get("Datum")),
                 data.get("Bezeichnung"),
                 data.get("MwSt-Satz"),
@@ -262,8 +267,7 @@ def process_folder_to_excel(folder, output_excel):
                 parse_german_float(data.get("Gesamtbetrag")),
                 parse_german_float(data.get("Nettobetrag")),
                 data.get("Lieferant"),
-                raw
-            ]
+                raw            ]
 
         except Exception as e:
             values = [file] + ["FEHLER"]*8 + [str(e)]
@@ -278,13 +282,31 @@ def process_folder_to_excel(folder, output_excel):
 
 # ===================== RUN =====================
 
+
+def debug(*args):
+    print("[DEBUG]", *args, flush=True)
+
+
+
 if __name__ == "__main__":
 
     if not check_lmstudio():
         print("❌ Gemma nicht erreichbar. Abbruch.")
         exit()
 
-    input_folder = r"C:\Users\surin\Meine Ablage (surinder.ram@gmail.com)\Firma\Belege\2025\Hardware"
-    output_excel = r"C:\Users\surin\Meine Ablage (surinder.ram@gmail.com)\Firma\Belege\2025\Hardware\Ergebnis.xlsx"
+    base_folder = r"C:\Users\surin\Meine Ablage (surinder.ram@gmail.com)\Firma\Belege\2025"
 
-    process_folder_to_excel(input_folder, output_excel)
+    for folder_name in os.listdir(base_folder):
+
+        folder_path = os.path.join(base_folder, folder_name)
+
+        # nur echte Ordner
+        if not os.path.isdir(folder_path):
+            continue
+
+        debug("📂 Verarbeite Ordner:", folder_name)
+
+        input_folder = folder_path
+        output_excel = os.path.join(folder_path, f"{folder_name}.xlsx")
+
+        process_folder_to_excel(input_folder, output_excel)
