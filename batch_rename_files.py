@@ -16,5 +16,5 @@ def nummeriere_pdfs(ordner, start_nr=200):
         print(f"{dateiname} -> {neuer_name}")
 
 if __name__ == "__main__":
-    ORDNER = r"C:\Users\surin\Meine Ablage (surinder.ram@gmail.com)\Firma\Belege\2024\Steuerberater"  # Passe den Pfad an
-    nummeriere_pdfs(ORDNER, start_nr=800)
+    ORDNER = r"C:\Users\surin\Meine Ablage (surinder.ram@gmail.com)\Firma\Belege\2025\versicherungen_Beiträge"  # Passe den Pfad an
+    nummeriere_pdfs(ORDNER, start_nr=700)

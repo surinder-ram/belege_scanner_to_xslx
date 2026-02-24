@@ -15,7 +15,8 @@ from datetime import datetime
 
 # LM Studio API-Einstellungen
 API_URL = "http://10.0.0.20:1233/v1/chat/completions"
-MODEL_NAME = "google/gemma-2-27b-it"  # Stelle sicher, dass dies der korrekte Identifier in LM Studio ist
+# MODEL_NAME = "google/gemma-2-27b-it"  # Stelle sicher, dass dies der korrekte Identifier in LM Studio ist
+MODEL_NAME = "google/gemma-3-27b"  # für 2026 nehmen wir das neuere
 # Oder dein spezifischer Name:
 # MODEL_NAME = "gemma-3-27b-it-qat"
 
