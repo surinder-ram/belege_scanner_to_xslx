@@ -1,312 +1,141 @@
 import os
 import re
 import json
+import base64
 import requests
-import numpy as np
-from datetime import datetime
-from pdf2image import convert_from_path
-from paddleocr import PaddleOCR
-from openpyxl import Workbook
-from openpyxl.styles import Font, NamedStyle, Alignment
+import pandas as pd
+import fitz  # PyMuPDF
 
 # ===================== CONFIG =====================
+# Bitte prüfe in LM Studio, ob der Port wirklich 1233 ist!
+API_URL = "http://localhost:1233/v1/chat/completions"
+MODEL_NAME = "google/gemma-4-26b-a4b"
+BASE_FOLDER = r"C:\Users\surin\Meine Ablage (surinder.ram@gmail.com)\Firma\Belege\2025"
 
-DEBUG = True
-API_URL = "http://10.0.0.20:1233/v1/chat/completions"
-MODEL_NAME = "google/gemma-3-12b"
-POPPLER_PATH = r"C:\Program Files\poppler-25.12.0\Library\bin"
 
-os.environ["PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK"] = "True"
-
-# ===================== LM STUDIO CHECK =====================
-
-def check_lmstudio():
-    print("\n🔎 Prüfe LM Studio Verbindung...")
+def clean_to_float(val):
+    if val is None or val == "": return 0.0
+    s = str(val).replace("EUR", "").replace("€", "").strip()
+    if "," in s and "." in s: s = s.replace(".", "")
+    s = s.replace(",", ".")
     try:
-        r = requests.get("http://10.0.0.20:1233/v1/models", timeout=10)
-        r.raise_for_status()
-        models = r.json().get("data", [])
+        match = re.search(r"[-+]?\d*\.\d+|\d+", s)
+        return float(match.group(0)) if match else 0.0
+    except:
+        return 0.0
 
-        if not models:
-            print("❌ Kein Modell geladen!")
-            return False
 
-        print("✅ Verbindung ok.")
-        for m in models:
-            print("   -", m["id"])
+def process_with_gemma_vision(pdf_path):
+    filename = os.path.basename(pdf_path)
+    print(f"\n{'=' * 50}")
+    print(f"📄 DATEI: {filename}")
 
-        return any(MODEL_NAME in m["id"] for m in models)
+    try:
+        doc = fitz.open(pdf_path)
+        # Render Seite 1
+        pix = doc[0].get_pixmap(matrix=fitz.Matrix(3.0, 3.0))
+        base64_image = base64.b64encode(pix.tobytes("png")).decode('utf-8')
+
+        prompt = """Analysiere diesen Beleg. Extrahiere die Daten als JSON.
+Gib NUR das JSON zurück.
+
+{
+  "Lieferant": "",
+  "Datum": "TT.MM.JJJJ",
+  "Bezeichnung": "",
+  "MwSt_Satz": "",
+  "MwSt_Betrag": "",
+  "Gesamt": "",
+  "Netto": ""
+}"""
+
+        payload = {
+            "model": MODEL_NAME,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{base64_image}"}}
+                    ]
+                }
+            ],
+            "temperature": 0.0
+        }
+
+        print(f"📡 Sende an LM Studio...")
+        response = requests.post(API_URL, json=payload, timeout=300)
+
+        # --- DEBUG: Rohe Server-Antwort ---
+        if response.status_code != 200:
+            print(f"❌ HTTP FEHLER {response.status_code}: {response.text}")
+            return None
+
+        res_data = response.json()
+
+        # --- DEBUG: Was das Modell wirklich gesagt hat ---
+        if "choices" in res_data:
+            content = res_data["choices"][0]["message"]["content"]
+            print(f"\n--- ROHER TEXT VOM MODELL ---")
+            print(content if content else "[LEERE ANTWORT]")
+            print(f"-----------------------------\n")
+
+            if not content:
+                return None
+
+            # Suche JSON
+            match = re.search(r"\{.*\}", content, re.DOTALL)
+            if match:
+                json_str = match.group(0)
+                # Fix für fehlende Quotes bei MwSt
+                json_str = re.sub(r':\s?(\d+)%', r': "\1%"', json_str)
+                return json.loads(json_str)
+            else:
+                print("⚠️ Regex konnte kein JSON finden.")
+                return None
+        else:
+            print(f"❌ Unerwartetes Antwort-Format: {res_data}")
+            return None
 
     except Exception as e:
-        print("❌ Verbindung fehlgeschlagen:", e)
-        return False
-
-# ===================== OCR INIT =====================
-
-OCR_ENGINE = PaddleOCR(
-    use_textline_orientation=True,
-    device="cpu"
-)
-
-# ===================== HELPER =====================
-
-def debug(msg):
-    if DEBUG:
-        print(msg)
-
-def parse_german_float(val):
-    if isinstance(val, str):
-        val = val.replace(".", "").replace(",", ".")
-        try:
-            return float(val)
-        except:
-            return None
-    return val if isinstance(val, float) else None
-
-def parse_german_date(val):
-    try:
-        return datetime.strptime(val, "%d.%m.%Y")
-    except:
+        print(f"⚠️ Script-Fehler bei {filename}: {e}")
         return None
 
-# ===================== OCR =====================
 
-def extract_text_with_paddle(pdf_path):
-
-    print("\n=============================")
-    print("📄 OCR START:", os.path.basename(pdf_path))
-    print("=============================")
-
-    pages = convert_from_path(
-        pdf_path,
-        dpi=300,
-        poppler_path=POPPLER_PATH
-    )
-
-    if not pages:
-        print("❌ Keine Seiten extrahiert")
-        return ""
-
-    full_text = ""
-
-    for page_index, page in enumerate(pages):
-
-        print(f"\n--- Seite {page_index+1} ---")
-
-        img = np.array(page)
-        result = OCR_ENGINE.predict(img)
-
-        if not result:
-            print("⚠️ OCR Ergebnis leer")
-            continue
-
-        print("Result Type:", type(result))
-        print("Length:", len(result))
-
-        page_dict = result[0]
-
-        print("Keys im Result:", page_dict.keys())
-
-        texts = page_dict.get("rec_texts", [])
-        scores = page_dict.get("rec_scores", [])
-
-        print("Gefundene Texte:", len(texts))
-
-        for txt, score in zip(texts, scores):
-
-            print(f"{score:.3f} | {txt}")
-
-            if score > 0.85:
-                full_text += txt.strip() + "\n"
-
-    print("\n=============================")
-    print("📄 OCR ENDE")
-    print("=============================")
-
-    print("\n--- FINAL TEXT ---")
-    print(full_text)
-    print("------------------\n")
-
-    return full_text
-
-# ===================== LLM =====================
-
-def send_text_to_llm(ocr_text):
-
-    system_prompt = (
-        "Du bist ein extrem präziser deutscher Buchhaltungs-Parser. "
-        "Du darfst KEINE Werte erfinden."
-    )
-
-    user_prompt = f"""
-Extrahiere folgende Rechnungsdaten:
-
-OCR TEXT:
-{ocr_text}
-
-Antworte ausschließlich mit gültigem JSON:
-
-{{
-"Rechnungsnummer":"",
-"Datum":"",
-"Bezeichnung":"",
-"MwSt-Satz":"",
-"MwSt-Betrag":"",
-"Gesamtbetrag":"",
-"Nettobetrag":"",
-"Lieferant":""
-}}
-
-Regeln:
-- Zahlen mit Komma
-- Datum TT.MM.JJJJ
-- Wenn nicht vorhanden → NICHT GEFUNDEN
-"""
-
-    payload = {
-        "model": MODEL_NAME,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
-        ],
-        "temperature": 0.0
-    }
-
-    debug("📤 Sende an LLM...")
-
-    response = requests.post(API_URL, json=payload, timeout=300)
-    response.raise_for_status()
-
-    content = response.json()["choices"][0]["message"]["content"]
-
-    debug("\n📥 LLM RAW:")
-    debug(content)
-
-    return content
-
-# ===================== JSON EXTRACTION =====================
-
-def extract_json(text):
-    try:
-        return json.loads(text)
-    except:
-        match = re.search(r"\{.*\}", text, re.DOTALL)
-        if match:
-            try:
-                return json.loads(match.group(0))
-            except:
-                return {}
-    return {}
-
-
-
-
-# ===================== VALIDATION =====================
-def validate_amounts(data):
-
-    netto = parse_german_float(data.get("Nettobetrag"))
-    mwst = parse_german_float(data.get("MwSt-Betrag"))
-    brutto = parse_german_float(data.get("Gesamtbetrag"))
-
-    if netto and mwst and brutto:
-        if abs((netto + mwst) - brutto) > 0.02:
-            print("⚠️ Beträge inkonsistent!")
-
-
-
-# ===================== PROCESS PDF =====================
-
-def process_pdf(pdf_path):
-
-    ocr_text = extract_text_with_paddle(pdf_path)
-    llm_answer = send_text_to_llm(ocr_text)
-    data = extract_json(llm_answer)
-
-    def debug(*args):
-        print("[DEBUG]", *args)
-
-    validate_amounts(data)
-
-    return data, llm_answer
-
-# ===================== EXCEL =====================
-
-def process_folder_to_excel(folder, output_excel):
-
-    wb = Workbook()
-    sheet = wb.active
-    sheet.title = "Rechnungen"
-
-    headers = [
-        "Datei","Datum","Bezeichnung",
-        "MwSt-Satz","MwSt-Betrag","Gesamtbetrag",
-        "Nettobetrag","Lieferant","Raw_LLM"
-    ]
-
-    for col,h in enumerate(headers,1):
-        sheet.cell(row=1,column=col,value=h).font = Font(bold=True)
-
-    row = 2
-
-    for file in sorted(os.listdir(folder)):
-        if not file.lower().endswith(".pdf"):
-            continue
-
-        path = os.path.join(folder,file)
-
-        try:
-            data, raw = process_pdf(path)
-
-            values = [
-                file,
-                #data.get("Rechnungsnummer"),
-                parse_german_date(data.get("Datum")),
-                data.get("Bezeichnung"),
-                data.get("MwSt-Satz"),
-                parse_german_float(data.get("MwSt-Betrag")),
-                parse_german_float(data.get("Gesamtbetrag")),
-                parse_german_float(data.get("Nettobetrag")),
-                data.get("Lieferant"),
-                raw            ]
-
-        except Exception as e:
-            values = [file] + ["FEHLER"]*8 + [str(e)]
-
-        for col,val in enumerate(values,1):
-            sheet.cell(row=row,column=col,value=val)
-
-        row+=1
-
-    wb.save(output_excel)
-    print(f"\n✔ Excel gespeichert: {output_excel}")
-
-# ===================== RUN =====================
-
-
-def debug(*args):
-    print("[DEBUG]", *args, flush=True)
-
+def main():
+    print(f"🚀 Starte Analyse mit Gemma-4-26b-Vision...")
+
+    for root, dirs, files in os.walk(BASE_FOLDER):
+        pdfs = [f for f in files if f.lower().endswith('.pdf')]
+        if not pdfs: continue
+
+        print(f"\n📂 ORDNER: {os.path.basename(root)}")
+        extracted_results = []
+
+        for f in pdfs:
+            data = process_with_gemma_vision(os.path.join(root, f))
+            if data:
+                cleaned = {
+                    "Datei": f,
+                    "Datum": data.get("Datum"),
+                    "Lieferant": data.get("Lieferant"),
+                    "Bezeichnung": data.get("Bezeichnung"),
+                    "MwSt_Satz": data.get("MwSt_Satz"),
+                    "MwSt_Betrag": clean_to_float(data.get("MwSt_Betrag")),
+                    "Brutto": clean_to_float(data.get("Gesamt") or data.get("Gesamtbetrag")),
+                    "Netto": clean_to_float(data.get("Netto") or data.get("Nettobetrag"))
+                }
+                extracted_results.append(cleaned)
+                print(f"✅ ERGEBNIS: {cleaned['Brutto']}€")
+            else:
+                print(f"❌ DATEI ÜBERSPRUNGEN.")
+
+        if extracted_results:
+            df = pd.DataFrame(extracted_results)
+            output_name = f"_Steuer_Gemma4_{os.path.basename(root)}.xlsx"
+            df.to_excel(os.path.join(root, output_name), index=False)
+            print(f"\n💾 EXCEL GESPEICHERT: {output_name}")
 
 
 if __name__ == "__main__":
-
-    if not check_lmstudio():
-        print("❌ Gemma nicht erreichbar. Abbruch.")
-        exit()
-
-    base_folder = r"C:\Users\surin\Meine Ablage (surinder.ram@gmail.com)\Firma\Belege\2025"
-
-    for folder_name in os.listdir(base_folder):
-
-        folder_path = os.path.join(base_folder, folder_name)
-
-        # nur echte Ordner
-        if not os.path.isdir(folder_path):
-            continue
-
-        debug("📂 Verarbeite Ordner:", folder_name)
-
-        input_folder = folder_path
-        output_excel = os.path.join(folder_path, f"{folder_name}.xlsx")
-
-        process_folder_to_excel(input_folder, output_excel)
+    main()
